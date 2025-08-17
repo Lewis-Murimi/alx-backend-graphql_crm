@@ -1,5 +1,5 @@
 import graphene
-from alx_backend_graphql_crm.crm.schema import Query as CRMQuery, Mutation as CRMMutation
+from alx_backend_graphql.crm.schema import Query as CRMQuery, Mutation as CRMMutation
 
 class Query(CRMQuery, graphene.ObjectType):
     pass
