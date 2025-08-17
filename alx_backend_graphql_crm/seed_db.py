@@ -1,10 +1,10 @@
 import os
 import django
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "alx_backend_graphql.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "alx_backend_graphql_crm.settings")
 django.setup()
 
-from alx_backend_graphql.crm.models import Customer, Product
+from alx_backend_graphql_crm.crm.models import Customer, Product
 
 def run():
     # Seed Customers
