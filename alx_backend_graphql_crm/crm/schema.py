@@ -5,7 +5,8 @@ from django.db import transaction
 from django.core.exceptions import ValidationError
 from .models import Customer, Product, Order
 
-# GraphQL Types
+
+# ------------------ GraphQL Types ------------------
 class CustomerType(DjangoObjectType):
     class Meta:
         model = Customer
@@ -35,32 +36,36 @@ class CreateCustomer(graphene.Mutation):
 
     customer = graphene.Field(CustomerType)
     message = graphene.String()
+    errors = graphene.List(graphene.String)
 
     def mutate(self, info, name, email, phone=None):
-        if Customer.objects.filter(email=email).exists():
-            raise Exception("Email already exists")
+        errors = []
 
+        # Email uniqueness
+        if Customer.objects.filter(email=email).exists():
+            errors.append("Email already exists")
+
+        # Phone format validation
         if phone and not re.match(r"^(\+\d{10,15}|\d{3}-\d{3}-\d{4})$", phone):
-            raise Exception("Invalid phone format. Use +1234567890 or 123-456-7890")
+            errors.append("Invalid phone format. Use +1234567890 or 123-456-7890")
+
+        if errors:
+            return CreateCustomer(customer=None, message="Customer creation failed", errors=errors)
 
         customer = Customer(name=name, email=email, phone=phone)
         customer.save()
-        return CreateCustomer(customer=customer, message="Customer created successfully!")
+        return CreateCustomer(customer=customer, message="Customer created successfully!", errors=None)
 
 
 # 2. BulkCreateCustomers
 class BulkCreateCustomers(graphene.Mutation):
+    class CustomerInput(graphene.InputObjectType):
+        name = graphene.String(required=True)
+        email = graphene.String(required=True)
+        phone = graphene.String(required=False)
+
     class Arguments:
-        input = graphene.List(
-            graphene.InputObjectType(
-                name="CustomerInput",
-                fields={
-                    "name": graphene.String(required=True),
-                    "email": graphene.String(required=True),
-                    "phone": graphene.String()
-                }
-            )
-        )
+        input = graphene.List(CustomerInput, required=True)
 
     customers = graphene.List(CustomerType)
     errors = graphene.List(graphene.String)
@@ -72,14 +77,17 @@ class BulkCreateCustomers(graphene.Mutation):
 
         for data in input:
             try:
-                if Customer.objects.filter(email=data["email"]).exists():
-                    raise ValidationError(f"Email already exists: {data['email']}")
+                if Customer.objects.filter(email=data.email).exists():
+                    raise ValidationError(f"Email already exists: {data.email}")
 
-                phone = data.get("phone")
-                if phone and not re.match(r"^(\+\d{10,15}|\d{3}-\d{3}-\d{4})$", phone):
-                    raise ValidationError(f"Invalid phone format: {phone}")
+                if data.phone and not re.match(r"^(\+\d{10,15}|\d{3}-\d{3}-\d{4})$", data.phone):
+                    raise ValidationError(f"Invalid phone format: {data.phone}")
 
-                customer = Customer.objects.create(**data)
+                customer = Customer.objects.create(
+                    name=data.name,
+                    email=data.email,
+                    phone=data.phone
+                )
                 created_customers.append(customer)
 
             except Exception as e:
@@ -96,16 +104,22 @@ class CreateProduct(graphene.Mutation):
         stock = graphene.Int(required=False)
 
     product = graphene.Field(ProductType)
+    errors = graphene.List(graphene.String)
 
     def mutate(self, info, name, price, stock=0):
+        errors = []
+
         if price <= 0:
-            raise Exception("Price must be positive")
+            errors.append("Price must be positive")
         if stock < 0:
-            raise Exception("Stock cannot be negative")
+            errors.append("Stock cannot be negative")
+
+        if errors:
+            return CreateProduct(product=None, errors=errors)
 
         product = Product(name=name, price=price, stock=stock)
         product.save()
-        return CreateProduct(product=product)
+        return CreateProduct(product=product, errors=None)
 
 
 # 4. CreateOrder
@@ -115,26 +129,33 @@ class CreateOrder(graphene.Mutation):
         product_ids = graphene.List(graphene.ID, required=True)
 
     order = graphene.Field(OrderType)
+    errors = graphene.List(graphene.String)
 
     def mutate(self, info, customer_id, product_ids):
+        errors = []
+
         try:
             customer = Customer.objects.get(pk=customer_id)
         except Customer.DoesNotExist:
-            raise Exception("Invalid customer ID")
+            errors.append("Invalid customer ID")
+            return CreateOrder(order=None, errors=errors)
 
         if not product_ids:
-            raise Exception("At least one product must be selected")
+            errors.append("At least one product must be selected")
+            return CreateOrder(order=None, errors=errors)
 
         products = Product.objects.filter(pk__in=product_ids)
         if len(products) != len(product_ids):
-            raise Exception("One or more product IDs are invalid")
+            errors.append("One or more product IDs are invalid")
+            return CreateOrder(order=None, errors=errors)
 
         order = Order(customer=customer)
         order.save()
         order.products.set(products)
         order.total_amount = order.calculate_total()
         order.save()
-        return CreateOrder(order=order)
+
+        return CreateOrder(order=order, errors=None)
 
 
 # ------------------ Schema Entry Point ------------------
